@@ -1,43 +1,35 @@
 import os
 
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
 
 
 load_dotenv()
 
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING")
-LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
 LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT")
 
 
-def check_environment():
-    """Check whether the required environment variables are available."""
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0,
+    api_key=OPENAI_API_KEY,
+)
 
-    print("Environment check")
-    print("-----------------")
 
-    print(
-        "OPENAI_API_KEY:",
-        "Loaded" if OPENAI_API_KEY else "Missing"
+def test_llm():
+    """Send a simple test request to GPT-4o mini."""
+
+    response = llm.invoke(
+        "You are NomadQ, a travel planning assistant. "
+        "Reply with one short sentence introducing yourself."
     )
 
-    print(
-        "LANGSMITH_API_KEY:",
-        "Loaded" if LANGSMITH_API_KEY else "Missing"
-    )
-
-    print(
-        "LANGSMITH_PROJECT:",
-        LANGSMITH_PROJECT or "Missing"
-    )
-
-    print(
-        "LANGSMITH_TRACING:",
-        LANGSMITH_TRACING or "Missing"
-    )
+    print("NomadQ response")
+    print("----------------")
+    print(response.content)
 
 
 if __name__ == "__main__":
-    check_environment()
+    test_llm()
