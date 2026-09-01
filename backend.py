@@ -1,6 +1,7 @@
 import os
 import operator
 import json
+import asyncio
 
 from typing import Any, TypedDict, Annotated
 
@@ -16,6 +17,14 @@ from langchain_core.messages import (
 )
 
 from langchain_openai import ChatOpenAI
+
+from mcp_client import (
+    tavily_mcp_search,
+    aviation_mcp_call,
+    extract_destination,
+    forecast_mcp_search,
+    weather_mcp_search,
+)
 
 
 load_dotenv()
@@ -344,106 +353,288 @@ def guardrail_blocked_agent(state: TravelState):
         ],
     }
 
+FLIGHT_AGENT_PROMPT = """
+You are a travel flight expert.
+
+Analyze the user's travel request and provide useful flight
+planning guidance.
+
+User Request:
+{query}
+
+Airport Data:
+{airport_data}
+
+Airline Data:
+{airline_data}
+
+Provide:
+
+1. Recommended route
+2. Suitable airports
+3. Relevant airlines
+4. Typical flight duration
+5. Estimated airfare range
+6. Peak season pricing warning
+7. Booking advice
+
+Return concise travel guidance.
+"""
 
 # =========================
 # Temporary specialist nodes
 # =========================
 
 def flight_agent(state: TravelState):
+    print("\nINSIDE FLIGHT AGENT\n")
+
+    query = state["user_query"]
+
+    try:
+        airports = asyncio.run(
+            aviation_mcp_call("list_airports")
+        )
+
+        airlines = asyncio.run(
+            aviation_mcp_call("list_airlines")
+        )
+
+        print("\nAIRPORTS:", airports)
+        print("\nAIRLINES:", airlines)
+
+        prompt = FLIGHT_AGENT_PROMPT.format(
+            query=query,
+            airport_data=str(airports)[:3000],
+            airline_data=str(airlines)[:3000],
+        )
+
+        response = llm.invoke(
+            [
+                SystemMessage(
+                    content="You are an expert travel flight planner."
+                ),
+                HumanMessage(content=prompt),
+            ]
+        )
+
+        flight_data = response.content
+
+    except Exception as exc:
+
+        flight_data = (
+            f"Flight information unavailable: {exc}"
+        )
 
     return {
-        "flight_results": (
-            "Flight agent will be implemented next."
-        ),
+        "flight_results": flight_data,
         "messages": [
             AIMessage(
-                content="Flight agent placeholder."
+                content="Flight recommendations generated"
             )
         ],
-        "llm_calls": state.get("llm_calls", 0),
+        "llm_calls": state.get("llm_calls", 0) + 1,
     }
 
 
 def hotel_agent(state: TravelState):
 
+    query = (
+        f"Best hotels for "
+        f"{state['user_query']}"
+    )
+
+    try:
+
+        hotel_results = asyncio.run(
+            tavily_mcp_search(query)
+        )
+
+    except Exception as exc:
+
+        print(
+            f"HOTEL AGENT MCP ERROR: "
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+
+        hotel_results = (
+            "Live hotel search is temporarily unavailable. "
+            "Provide general accommodation and neighborhood "
+            "guidance based on the destination and clearly "
+            "label it as non-live advice."
+        )
+
     return {
-        "hotel_results": (
-            "Hotel agent will be implemented next."
-        ),
+        "hotel_results": hotel_results,
         "messages": [
             AIMessage(
-                content="Hotel agent placeholder."
+                content="Hotel information processed."
             )
         ],
-        "llm_calls": state.get("llm_calls", 0),
+        "llm_calls": (
+            state.get("llm_calls", 0) + 1
+        ),
     }
 
 
 def weather_agent(state: TravelState):
 
+    city = extract_destination(
+        state["user_query"]
+    )
+
+    try:
+
+        weather_data = asyncio.run(
+            weather_mcp_search(city)
+        )
+
+        forecast_data = asyncio.run(
+            forecast_mcp_search(city)
+        )
+
+        weather_results = f"""
+Current Weather:
+{weather_data}
+
+Forecast:
+{forecast_data}
+"""
+
+    except Exception as exc:
+
+        print(
+            f"WEATHER AGENT MCP ERROR: "
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+
+        weather_results = (
+            f"Live weather information for {city} "
+            "is temporarily unavailable. Give general "
+            "seasonal guidance and advise the traveler "
+            "to verify the forecast before departure."
+        )
+
     return {
-        "weather_results": (
-            "Weather agent will be implemented next."
-        ),
+        "weather_results": weather_results,
         "messages": [
             AIMessage(
-                content="Weather agent placeholder."
+                content="Weather information processed."
             )
         ],
-        "llm_calls": state.get("llm_calls", 0),
     }
 
 
 def budget_agent(state: TravelState):
 
+    prompt = f"""
+Analyze whether this trip is realistic for the user's budget.
+
+User Query:
+{state['user_query']}
+
+Trip Constraints:
+{state.get('trip_constraints', {})}
+
+Flight Results:
+{state.get('flight_results', '')}
+
+Hotel Results:
+{state.get('hotel_results', '')}
+
+Weather Results:
+{state.get('weather_results', '')}
+
+Return:
+
+1. Estimated cost categories
+2. Budget risk areas
+3. Money-saving suggestions
+4. Overall feasibility
+
+If exact live prices are unavailable,
+clearly label estimates as approximate.
+"""
+
+    response = llm.invoke(
+        [
+            SystemMessage(
+                content="You are a practical travel budget analyst."
+            ),
+            HumanMessage(content=prompt),
+        ]
+    )
+
     return {
-        "budget_results": (
-            "Budget agent will be implemented next."
-        ),
+        "budget_results": response.content,
         "messages": [
             AIMessage(
-                content="Budget agent placeholder."
+                content="Budget assessment generated."
             )
         ],
-        "llm_calls": state.get("llm_calls", 0),
+        "llm_calls": (
+            state.get("llm_calls", 0) + 1
+        ),
     }
 
 
 def itinerary_agent(state: TravelState):
 
-    response = _llm_text(
-        "You are a travel itinerary planner.",
-        f"""
-Create a preliminary travel itinerary.
+    prompt = f"""
+Create a complete travel itinerary.
 
-User request:
-{state["user_query"]}
+User Query:
+{state['user_query']}
 
-Trip constraints:
-{state.get("trip_constraints", {})}
+Trip Constraints:
+{state.get('trip_constraints', {})}
 
-Flight information:
-{state.get("flight_results", "")}
+Flight Results:
+{state.get('flight_results', '')}
 
-Hotel information:
-{state.get("hotel_results", "")}
+Hotel Results:
+{state.get('hotel_results', '')}
 
-Weather information:
-{state.get("weather_results", "")}
+Weather Results:
+{state.get('weather_results', '')}
 
-Budget information:
-{state.get("budget_results", "")}
-""",
+Budget Results:
+{state.get('budget_results', '')}
+
+Make the itinerary practical,
+budget-aware, and easy to follow.
+
+Create a clear draft that is ready
+for human review.
+"""
+
+    response = llm.invoke(
+        [
+            SystemMessage(
+                content="You are an expert travel planner."
+            ),
+            HumanMessage(content=prompt),
+        ]
+    )
+
+    approval_request = (
+        "Please review the generated draft itinerary. "
+        "Approve it to create the final polished plan, "
+        "or provide feedback for revision."
     )
 
     return {
-        "itinerary": response,
+        "itinerary": response.content,
+        "approval_request": approval_request,
         "messages": [
             AIMessage(
-                content="Draft itinerary created."
+                content="Draft itinerary created for human review."
             )
         ],
-        "llm_calls": state.get("llm_calls", 0) + 1,
+        "llm_calls": (
+            state.get("llm_calls", 0) + 1
+        ),
     }
 
 
