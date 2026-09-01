@@ -8,7 +8,6 @@ load_dotenv()
 
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT")
 
 
 llm = ChatOpenAI(
@@ -18,18 +17,25 @@ llm = ChatOpenAI(
 )
 
 
-def test_llm():
-    """Send a simple test request to GPT-4o mini."""
+def ask_nomadq(query: str):
+    """Send a user query to GPT-4o mini."""
 
     response = llm.invoke(
-        "You are NomadQ, a travel planning assistant. "
-        "Reply with one short sentence introducing yourself."
+        f"""You are NomadQ, a helpful travel planning assistant.
+
+User request:
+{query}
+"""
+    )
+
+    return response.content
+
+
+if __name__ == "__main__":
+    response = ask_nomadq(
+        "Plan a 4 day trip to Dubai."
     )
 
     print("NomadQ response")
     print("----------------")
-    print(response.content)
-
-
-if __name__ == "__main__":
-    test_llm()
+    print(response)
