@@ -399,9 +399,6 @@ def flight_agent(state: TravelState):
             aviation_mcp_call("list_airlines")
         )
 
-        print("\nAIRPORTS:", airports)
-        print("\nAIRLINES:", airlines)
-
         prompt = FLIGHT_AGENT_PROMPT.format(
             query=query,
             airport_data=str(airports)[:3000],
